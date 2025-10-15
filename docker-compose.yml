@@ -1,1 +1,58 @@
 
+version: "3.9"
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: agenthub-postgres
+    environment:
+      POSTGRES_USER: ${PGUSER}
+      POSTGRES_PASSWORD: ${PGPASSWORD}
+      POSTGRES_DB: ${PGDATABASE}
+    volumes:
+      - ./data/pg:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PGUSER} -d ${PGDATABASE}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  vllm:
+    image: vllm/vllm-openai:latest
+    container_name: agenthub-vllm
+    command: >
+      --model ${LLM_MODEL}
+      --dtype auto
+      --host 0.0.0.0
+      --tensor-parallel-size ${TP_SIZE}
+      --max-model-len ${MAX_TOKENS}
+      --served-model-name internal-llm
+      --download-dir /models
+    volumes:
+      - ./data/models:/models
+    ports:
+      - "8000:8000"
+
+  orchestrator:
+    build: ./app
+    container_name: agenthub-orchestrator
+    environment:
+      OPENAI_BASE_URL: http://vllm:8000/v1
+      OPENAI_API_KEY: ${DUMMY_OPENAI_KEY}
+      VECTOR_DB: pgvector
+      PGHOST: postgres
+      PGPORT: 5432
+      PGUSER: ${PGUSER}
+      PGPASSWORD: ${PGPASSWORD}
+      PGDATABASE: ${PGDATABASE}
+    depends_on:
+      - postgres
+      - vllm
+    ports:
+      - "7000:7000"
+    volumes:
+      - ./config:/app/config
+      - ./ingestion:/app/ingestion
+      - ./logs:/app/logs
